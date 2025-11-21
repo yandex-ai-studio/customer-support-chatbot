@@ -1,0 +1,30 @@
+[project]
+name = "airline-api"
+version = "1.0.0"
+description = "REST API сервис для управления профилями клиентов авиакомпании"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.114.1,<0.116",
+    "uvicorn[standard]>=0.36,<0.37",
+    "boto3>=1.34.0,<2",
+    "pydantic>=2.0,<3",
+    "requests>=2.32.5",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6.4,<0.7",
+    "mypy>=1.8,<2",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["I"]
+

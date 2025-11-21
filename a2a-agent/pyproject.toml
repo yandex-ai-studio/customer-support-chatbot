@@ -1,0 +1,35 @@
+[project]
+name = "customer-support-a2a-agent"
+version = "0.1.0"
+description = "Customer Support A2A Agent for Airline"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "a2a-sdk>=0.3.0",
+    "httpx>=0.28,<0.29",
+    "uvicorn[standard]>=0.36,<0.37",
+    "openai>=1.40",
+    "openai-agents>=0.4.1,<1",
+    "mcp>=1.0.0",
+    "python-dotenv>=1.1.0",
+    "sse-starlette>=2.3.5",
+    "starlette>=0.46.2",
+    "pydantic>=2.11.4",
+    "asyncpg>=0.29.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.6.4,<0.7",
+    "mypy>=1.8,<2",
+]
+
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+extend-select = ["I"]
