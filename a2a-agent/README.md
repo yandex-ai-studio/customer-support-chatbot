@@ -114,29 +114,32 @@ cd a2a-agent
 docker build -t a2a-agent:latest .
 yc container registry create --name ${REGISTRY_NAME}
 REGISTRY_ID=$(yc container registry get --name ${REGISTRY_NAME} --format json | jq -r '.id')
-docker tag a2a-agent:latest cr.yandex/${REGISTRY_ID}/a2a-agent:latest
 yc container registry configure-docker
+docker tag a2a-agent:latest cr.yandex/${REGISTRY_ID}/a2a-agent:latest
 docker push cr.yandex/${REGISTRY_ID}/a2a-agent:latest
 
 # 3. Настройка сервисного аккаунта и API-ключа
 yc iam service-account create --name ${SA_NAME}
 SA_ID=$(yc iam service-account get ${SA_NAME} --format json | jq -r '.id')
 
-# Назначение ролей
-for role in lockbox.payloadViewer container-registry.images.puller serverless.containers.invoker \
-            serverless.mcpGateways.invoker ai.assistants.editor ai.languageModels.user; do
-  yc resourcemanager folder add-access-binding ${FOLDER_ID} --role ${role} --subject serviceAccount:${SA_ID}
-done
+# Назначение ролей (одной командой)
+yc resourcemanager folder add-access-bindings ${FOLDER_ID} \
+  --access-binding role=lockbox.payloadViewer,subject=serviceAccount:${SA_ID} \
+  --access-binding role=container-registry.images.puller,subject=serviceAccount:${SA_ID} \
+  --access-binding role=serverless.containers.invoker,subject=serviceAccount:${SA_ID} \
+  --access-binding role=serverless.mcpGateways.invoker,subject=serviceAccount:${SA_ID} \
+  --access-binding role=ai.assistants.editor,subject=serviceAccount:${SA_ID} \
+  --access-binding role=ai.languageModels.user,subject=serviceAccount:${SA_ID}
 
 # Создание API-ключа и секрета
-yc iam api-key create --service-account-id ${SA_ID} \
+API_KEY=$(yc iam api-key create --service-account-id ${SA_ID} \
   --scope "yc.ai.languageModels.execute" \
   --scope "yc.serverless.containers.invoke" \
   --scope "yc.serverless.mcpGateways.invoke" \
-  --format json > api-key.json
-API_KEY=$(cat api-key.json | jq -r '.secret')
+  --format json | jq -r '.secret')
 yc lockbox secret create --name a2a-api-key --payload "[{'key': 'API_KEY', 'text_value': '${API_KEY}'}]"
 SECRET_ID=$(yc lockbox secret get a2a-api-key --format json | jq -r '.id')
+VERSION_ID=$(yc lockbox secret get a2a-api-key --format json | jq -r '.current_version.id')
 
 # 4. Получение URL MCP и Airline API
 MCP_SERVER_URL="https://your-airline-mcp-server-url.com"
@@ -156,7 +159,7 @@ yc serverless container revision deploy \
   --environment MCP_SERVER_URL=${MCP_SERVER_URL} \
   --environment AIRLINE_API_URL=${AIRLINE_API_URL} \
   --environment VECTOR_STORE_ID=${VECTOR_STORE_ID} \
-  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=latest,key=API_KEY
+  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=${VERSION_ID},key=API_KEY
 
 yc serverless container allow-unauthenticated-invoke a2a-agent
 
@@ -223,30 +226,14 @@ SA_ID=$(yc iam service-account get a2a-agent-sa --format json | jq -r '.id')
 # Получение ID каталога
 FOLDER_ID=$(yc config get folder-id)
 
-# Назначение ролей
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role lockbox.payloadViewer \
-  --subject serviceAccount:${SA_ID}
-
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role container-registry.images.puller \
-  --subject serviceAccount:${SA_ID}
-
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role serverless.containers.invoker \
-  --subject serviceAccount:${SA_ID}
-
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role serverless.mcpGateways.invoker \
-  --subject serviceAccount:${SA_ID}
-
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role ai.assistants.editor \
-  --subject serviceAccount:${SA_ID}
-
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role ai.languageModels.user \
-  --subject serviceAccount:${SA_ID}
+# Назначение ролей (одной командой)
+yc resourcemanager folder add-access-bindings ${FOLDER_ID} \
+  --access-binding role=lockbox.payloadViewer,subject=serviceAccount:${SA_ID} \
+  --access-binding role=container-registry.images.puller,subject=serviceAccount:${SA_ID} \
+  --access-binding role=serverless.containers.invoker,subject=serviceAccount:${SA_ID} \
+  --access-binding role=serverless.mcpGateways.invoker,subject=serviceAccount:${SA_ID} \
+  --access-binding role=ai.assistants.editor,subject=serviceAccount:${SA_ID} \
+  --access-binding role=ai.languageModels.user,subject=serviceAccount:${SA_ID}
 ```
 
 > **Примечание**: A2A агент не требует роли `ydb.editor`, так как не использует YDB для хранения состояния.
@@ -256,17 +243,14 @@ yc resourcemanager folder add-access-binding ${FOLDER_ID} \
 Создайте API-ключ для сервисного аккаунта с необходимыми правами:
 
 ```bash
-# Создание API-ключа со скоупами
-yc iam api-key create \
+# Создание API-ключа со скоупами и извлечение секрета
+API_KEY=$(yc iam api-key create \
   --service-account-id ${SA_ID} \
   --description "API key for A2A agent" \
   --scope "yc.ai.languageModels.execute" \
   --scope "yc.serverless.containers.invoke" \
   --scope "yc.serverless.mcpGateways.invoke" \
-  --format json > api-key.json
-
-# Извлечение секретного ключа
-API_KEY=$(cat api-key.json | jq -r '.secret')
+  --format json | jq -r '.secret')
 
 echo "API Key: ${API_KEY}"
 ```
@@ -286,6 +270,7 @@ yc lockbox secret create \
 
 # Получение ID секрета
 SECRET_ID=$(yc lockbox secret get a2a-api-key --format json | jq -r '.id')
+VERSION_ID=$(yc lockbox secret get a2a-api-key --format json | jq -r '.current_version.id')
 
 echo "Secret ID: ${SECRET_ID}"
 ```
@@ -295,6 +280,13 @@ echo "Secret ID: ${SECRET_ID}"
 Создайте публичный Serverless Container и разверните ревизию:
 
 ```bash
+# Получение переменных из предыдущих шагов
+FOLDER_ID=$(yc config get folder-id)
+REGISTRY_ID=$(yc container registry get --name my-registry --format json | jq -r '.id')
+SA_ID=$(yc iam service-account get a2a-agent-sa --format json | jq -r '.id')
+SECRET_ID=$(yc lockbox secret get a2a-api-key --format json | jq -r '.id')
+VERSION_ID=$(yc lockbox secret get a2a-api-key --format json | jq -r '.current_version.id')
+
 # Получение URL MCP сервера (должен быть развернут заранее)
 MCP_SERVER_URL=$(yc serverless container get airline-api --format json | jq -r '.url')
 
@@ -321,7 +313,7 @@ yc serverless container revision deploy \
   --environment MCP_SERVER_URL=${MCP_SERVER_URL} \
   --environment AIRLINE_API_URL=${AIRLINE_API_URL} \
   --environment VECTOR_STORE_ID=${VECTOR_STORE_ID} \
-  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=latest,key=API_KEY
+  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=${VERSION_ID},key=API_KEY
 
 # Сделать контейнер публичным
 yc serverless container allow-unauthenticated-invoke a2a-agent
