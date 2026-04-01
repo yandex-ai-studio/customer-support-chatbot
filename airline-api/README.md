@@ -226,23 +226,12 @@ SA_ID=$(yc iam service-account get airline-api-sa --format json | jq -r '.id')
 # Получение ID каталога
 FOLDER_ID=$(yc config get folder-id)
 
-# Назначение ролей
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role lockbox.payloadViewer \
-  --subject serviceAccount:${SA_ID}
-
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role container-registry.images.puller \
-  --subject serviceAccount:${SA_ID}
-
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role serverless.containers.invoker \
-  --subject serviceAccount:${SA_ID}
-
-# Если используется YDB
-yc resourcemanager folder add-access-binding ${FOLDER_ID} \
-  --role ydb.editor \
-  --subject serviceAccount:${SA_ID}
+# Назначение ролей (одной командой)
+yc resourcemanager folder add-access-bindings ${FOLDER_ID} \
+  --access-binding role=lockbox.payloadViewer,subject=serviceAccount:${SA_ID} \
+  --access-binding role=container-registry.images.puller,subject=serviceAccount:${SA_ID} \
+  --access-binding role=serverless.containers.invoker,subject=serviceAccount:${SA_ID} \
+  --access-binding role=ydb.editor,subject=serviceAccount:${SA_ID}
 ```
 
 ### Шаг 5: Создание API-ключа
@@ -250,14 +239,11 @@ yc resourcemanager folder add-access-binding ${FOLDER_ID} \
 Создайте API-ключ для сервисного аккаунта:
 
 ```bash
-# Создание API-ключа
-yc iam api-key create \
+# Создание API-ключа и извлечение секрета
+API_KEY=$(yc iam api-key create \
   --service-account-id ${SA_ID} \
   --description "API key for Airline API" \
-  --format json > airline-api-key.json
-
-# Извлечение секретного ключа
-API_KEY=$(cat airline-api-key.json | jq -r '.secret')
+  --format json | jq -r '.secret')
 
 echo "API Key: ${API_KEY}"
 ```
@@ -277,6 +263,7 @@ yc lockbox secret create \
 
 # Получение ID секрета
 SECRET_ID=$(yc lockbox secret get airline-api-key --format json | jq -r '.id')
+VERSION_ID=$(yc lockbox secret get airline-api-key --format json | jq -r '.current_version.id')
 
 echo "Secret ID: ${SECRET_ID}"
 ```
@@ -314,6 +301,14 @@ echo "MCP Server URL: ${MCP_SERVER_URL}"
 Создайте публичный Serverless Container и разверните ревизию:
 
 ```bash
+# Получение переменных из предыдущих шагов
+FOLDER_ID=$(yc config get folder-id)
+REGISTRY_ID=$(yc container registry get --name my-registry --format json | jq -r '.id')
+SA_ID=$(yc iam service-account get airline-api-sa --format json | jq -r '.id')
+DOCUMENT_API_ENDPOINT=$(yc ydb database get airline-db --format json | jq -r '.document_api_endpoint')
+SECRET_ID=$(yc lockbox secret get airline-api-key --format json | jq -r '.id')
+VERSION_ID=$(yc lockbox secret get airline-api-key --format json | jq -r '.current_version.id')
+
 # Создание контейнера
 yc serverless container create --name airline-api
 
@@ -328,7 +323,7 @@ yc serverless container revision deploy \
   --concurrency 4 \
   --environment PORT=8001 \
   --environment USE_MEMORY_STORE=true \
-  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=latest,key=API_KEY
+  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=${VERSION_ID},key=API_KEY
 
 # Вариант 2: Деплой с YDB Document API (для production)
 yc serverless container revision deploy \
@@ -345,7 +340,7 @@ yc serverless container revision deploy \
   --environment DYNAMODB_ENDPOINT_URL=${DOCUMENT_API_ENDPOINT} \
   --environment DYNAMODB_TABLE_PREFIX=airline \
   --environment AUTO_CREATE_TABLES=true \
-  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=latest,key=API_KEY
+  --secret environment-variable=API_KEY,id=${SECRET_ID},version-id=${VERSION_ID},key=API_KEY
 
 # Сделать контейнер публичным
 yc serverless container allow-unauthenticated-invoke airline-api
